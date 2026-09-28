@@ -2,14 +2,50 @@
 //! group lists the same tabs, as an editor's groups do; which one a group
 //! shows is its own choice.
 
-use super::HerdrWindow;
+use super::{HerdrWindow, tab_drag::StripDrag};
 use crate::{
     TAB_HEIGHT, TAB_WIDTH,
-    browser::{Fold, GroupId, Leaving, Listed, Pick, Shown, Slot},
+    browser::{Fold, GroupId, Leaving, Listed, Pick, Shown, Slot, ThumbDrag},
     controls::Command,
     fonts::StyledFont,
+    sidebar::{STATUS_WIDTH, status_dot},
 };
 use gpui::{prelude::*, *};
+use herdr_client::protocol::AgentStatus;
+
+/// The gap between a Herdr tab's status dot and its title.
+const DOT_GAP: f32 = 6.;
+
+/// How tall the thumb along a scrolling strip's foot draws.
+const THUMB_HEIGHT: f32 = 4.;
+
+/// How far a lifted tab's card reaches past each side of the tab.
+const LIFT_GROW: f32 = 5.;
+
+/// How opaque the thumb draws over the strip's muted color, and while held.
+const THUMB_ALPHA: u32 = 0x80;
+const THUMB_HELD_ALPHA: u32 = 0xc0;
+
+/// What a tab draws before its title.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lead {
+    Nothing,
+    /// A Herdr tab whose agents report a status.
+    Dot,
+    /// A browser tab's globe.
+    Globe,
+}
+
+impl Lead {
+    /// Unknown is what a tab without an agent reports, so it draws nothing
+    /// rather than the sidebar's small grey dot.
+    fn of(status: AgentStatus) -> Self {
+        match status {
+            AgentStatus::Unknown => Self::Nothing,
+            _ => Self::Dot,
+        }
+    }
+}
 
 /// What a divider drags: the index of the group on its left. The row it
 /// resizes reads the pointer.
@@ -33,8 +69,8 @@ impl HerdrWindow {
     }
 
     /// How wide a tab with `label` draws, as its padding, gaps, close
-    /// button, and an icon when it has one add up around the shaped text.
-    fn tab_width(&self, label: &SharedString, icon: bool, window: &Window) -> f32 {
+    /// button, and whatever leads its title add up around the shaped text.
+    fn tab_width(&self, label: &SharedString, lead: Lead, window: &Window) -> f32 {
         let run = TextRun {
             len: label.len(),
             font: self.config.tabs.font(),
@@ -50,8 +86,12 @@ impl HerdrWindow {
                 .width,
         );
         // Padding, the gap before the close button, the button, the rule;
-        // a browser tab's globe and its gap.
-        let chrome = if icon { 10. + 12. + 6. + 6. } else { 12. + 10. };
+        // a status dot or a browser tab's globe, and its gap.
+        let chrome = match lead {
+            Lead::Nothing => 12. + 10.,
+            Lead::Dot => 12. + STATUS_WIDTH + DOT_GAP + 10.,
+            Lead::Globe => 10. + 12. + 6. + 6.,
+        };
         (chrome + text + 18. + 3. + 1.).max(TAB_WIDTH)
     }
 
@@ -82,7 +122,7 @@ impl HerdrWindow {
         // What the strip lists, measured, so the ones that just opened grow
         // in and the ones that just closed shrink out where they stood.
         let now = std::time::Instant::now();
-        let herdr: Vec<(Pick, SharedString)> = self
+        let herdr: Vec<((Pick, SharedString), Lead)> = self
             .live
             .snapshot
             .as_ref()
@@ -93,8 +133,11 @@ impl HerdrWindow {
                     .filter(|t| Some(&t.workspace_id) == snapshot.focused_workspace_id.as_ref())
                     .map(|t| {
                         (
-                            Pick::Herdr(t.tab_id.clone()),
-                            SharedString::from(t.label.clone()),
+                            (
+                                Pick::Herdr(t.tab_id.clone()),
+                                SharedString::from(t.label.clone()),
+                            ),
+                            Lead::of(t.agent_status),
                         )
                     })
                     .collect()
@@ -102,21 +145,24 @@ impl HerdrWindow {
             .unwrap_or_default();
         let listed: Vec<Listed> = herdr
             .into_iter()
-            .map(|entry| (entry, false))
             .chain(
                 self.browser_tab_labels(cx)
                     .into_iter()
-                    .map(|entry| (entry, true)),
+                    .map(|entry| (entry, Lead::Globe)),
             )
             .filter(|((pick, _), _)| self.group_lists(slot.id, pick))
-            .map(|((pick, label), icon)| Listed {
-                width: self.tab_width(&label, icon, window),
+            .map(|((pick, label), lead)| Listed {
+                width: self.tab_width(&label, lead, window),
                 pick,
                 label,
             })
             .collect();
+        // Leaving tabs slot in among these below; `None` marks where.
+        let mut places: Vec<Option<Pick>> =
+            listed.iter().map(|tab| Some(tab.pick.clone())).collect();
         self.observe_strip(slot.id, listed, now);
-        let mut entries: Vec<AnyElement> = Vec::new();
+        let scroll = self.strip_scroll(slot.id);
+        let mut built: Vec<(Pick, Stateful<Div>)> = Vec::new();
         let mut tabs = div()
             .id(SharedString::from(slot.selector("tabs")))
             .flex()
@@ -125,6 +171,7 @@ impl HerdrWindow {
             .text_font(&self.config.tabs)
             .text_size(px(self.config.tabs.size))
             .overflow_x_scroll()
+            .track_scroll(&scroll)
             .bg(rgb(self.theme.surface))
             .text_color(rgb(self.theme.foreground))
             .items_center();
@@ -138,7 +185,8 @@ impl HerdrWindow {
                 let close_id = id.clone();
                 let selected = matches!(&pick, Some(Pick::Herdr(picked)) if *picked == id);
                 let (background, text) = self.tab_colors(selected, slot.id);
-                entries.push(
+                built.push((
+                    Pick::Herdr(id.clone()),
                     div()
                         .id(SharedString::from(format!("tab-{id}")))
                         .debug_selector({
@@ -162,7 +210,19 @@ impl HerdrWindow {
                         .cursor_pointer()
                         .bg(rgb(background))
                         .text_color(rgb(text))
-                        .child(tab.label.clone())
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(DOT_GAP))
+                                .when(Lead::of(tab.agent_status) == Lead::Dot, |title| {
+                                    title.child(status_dot(tab.agent_status).debug_selector({
+                                        let id = id.clone();
+                                        move || slot.selector(&format!("tab-status-{id}"))
+                                    }))
+                                })
+                                .child(tab.label.clone()),
+                        )
                         .child(
                             div()
                                 .id("close-tab")
@@ -215,33 +275,106 @@ impl HerdrWindow {
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.choose_herdr_tab(slot.id, &id, window, cx);
-                        }))
-                        .into_any_element(),
-                );
+                        })),
+                ));
             }
         }
         let shown = match pick {
             Some(Pick::Page(id)) => Some(id),
             _ => None,
         };
-        entries.extend(self.browser_tab_entries(slot, shown, cx));
+        built.extend(
+            self.browser_tab_entries(slot, shown, cx)
+                .into_iter()
+                .map(|(id, tab)| (Pick::Page(id), tab)),
+        );
         // Closed tabs go back where they stood, in the order they stood.
         let mut leaving = self.leaving_tabs(slot.id);
         leaving.sort_by_key(|leaving| leaving.index);
+        for leaving in &leaving {
+            places.insert(leaving.index.min(places.len()), None);
+        }
+        let drag = self.strip_drag(slot.id, &places, &scroll, now);
+        if drag.as_ref().is_some_and(|drag| drag.moving) {
+            window.request_animation_frame();
+        }
+        let mut entries: Vec<AnyElement> = built
+            .into_iter()
+            .map(|(tab_pick, tab)| {
+                let selected = pick.as_ref() == Some(&tab_pick);
+                self.draggable_tab(slot, tab_pick, tab, selected, drag.as_ref(), cx)
+            })
+            .collect();
         for leaving in leaving {
             let index = leaving.index.min(entries.len());
             entries.insert(index, self.leaving_tab(slot, &leaving, now));
         }
         tabs = tabs.children(entries);
+        if let Some((index, pick)) = pick.as_ref().and_then(|pick| {
+            let index = places
+                .iter()
+                .position(|place| place.as_ref() == Some(pick))?;
+            Some((index, pick))
+        }) && self.reveal_tab(slot.id, pick, index)
+        {
+            window.request_animation_frame();
+        }
+        let hover_group = SharedString::from(slot.selector("tab-scroller"));
+        let thumb_color = |alpha| rgba((self.theme.muted << 8) | alpha);
+        // The thumb sits over the tabs rather than inside them, so it stays
+        // put as they scroll beneath it; the pointer finds it along the
+        // strip's foot, as in an editor.
+        let scroller = div()
+            .id(SharedString::from(slot.selector("tab-scroller")))
+            .group(hover_group.clone())
+            .relative()
+            .flex()
+            .flex_shrink_1()
+            .min_w_0()
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<ThumbDrag>, _, cx| {
+                    let ThumbDrag(group) = *event.drag(cx);
+                    if group == slot.id && this.drag_strip_thumb(group, event.event.position.x) {
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(tabs.flex_shrink_1().min_w_0())
+            .children(self.strip_thumb(slot.id).map(|thumb| {
+                div()
+                    .id(SharedString::from(slot.selector("tab-scroll-thumb")))
+                    .debug_selector(move || slot.selector("tab-scroll-thumb"))
+                    .absolute()
+                    .bottom_0()
+                    .left(px(thumb.left))
+                    .w(px(thumb.width))
+                    .h(px(THUMB_HEIGHT))
+                    // The wheel still scrolls the strip over the thumb.
+                    .block_mouse_except_scroll()
+                    .group_hover(hover_group, |s| s.bg(thumb_color(THUMB_ALPHA)))
+                    .hover(|s| s.bg(thumb_color(THUMB_ALPHA)))
+                    .active(|s| s.bg(thumb_color(THUMB_HELD_ALPHA)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, _| {
+                            this.grab_strip_thumb(slot.id, event.position.x);
+                        }),
+                    )
+                    .on_drag(ThumbDrag(slot.id), |_, _, _, cx| cx.new(|_| EmptyView))
+            }));
         div()
             .flex()
             .flex_none()
+            .relative()
             .bg(rgb(self.theme.surface))
             .text_color(rgb(self.theme.foreground))
+            .when(self.tab_drag_in(slot.id), |strip| {
+                strip.child(self.tab_drag_listeners(cx))
+            })
             // Tabs size to their content and shrink when the row is full, so
             // the button sits after the last tab instead of at the far right
             // of the window.
-            .child(tabs.flex_shrink_1().min_w_0())
+            .child(scroller)
             .child(
                 div()
                     .id(SharedString::from(slot.selector("new-tab")))
@@ -287,6 +420,108 @@ impl HerdrWindow {
                     this.open_group_menu(slot.id, event.position(), window, cx);
                 },
             ))
+    }
+
+    /// A tab as the strip places it: armed to lift for reordering, slid
+    /// aside for a drop in preview, or carried over the strip, grown so it
+    /// reads as held.
+    fn draggable_tab(
+        &self,
+        slot: Slot,
+        pick: Pick,
+        tab: Stateful<Div>,
+        selected: bool,
+        drag: Option<&StripDrag>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let shift = drag
+            .and_then(|drag| drag.shifts.get(&pick))
+            .copied()
+            .unwrap_or(0.);
+        let grown = drag
+            .and_then(|drag| drag.carried.as_ref())
+            .and_then(|(carried, grown)| (*carried == pick).then_some(*grown));
+        let press = pick.clone();
+        let tab = tab
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    if event.click_count == 1 {
+                        this.press_tab(slot.id, &press, event.position, cx);
+                    }
+                }),
+            )
+            .when(shift != 0., |tab| tab.relative().left(px(shift)));
+        let Some(grown) = grown else {
+            return tab.into_any_element();
+        };
+        let (background, _) = self.tab_colors(selected, slot.id);
+        let (wide, tall) = (LIFT_GROW * grown, LIFT_GROW * 0.5 * grown);
+        let selector = match &pick {
+            Pick::Herdr(id) => format!("lifted-tab-{id}"),
+            Pick::Page(id) => format!("lifted-browser-tab-{id}"),
+        };
+        // A card behind the tab, a little larger than it in the tab's own
+        // color, grows as it lifts, so the held tab reads as picked up while
+        // its label stays where it was. The tab keeps its place in the row,
+        // so the others hold still, and paints last, over the tabs it passes.
+        let card = div()
+            .debug_selector(move || slot.selector(&selector))
+            .absolute()
+            .left(px(-wide))
+            .right(px(-wide))
+            .top(px(-tall))
+            .bottom(px(-tall))
+            .rounded(px(crate::config::corners::CONTROL))
+            .bg(rgb(background))
+            .border_1()
+            .border_color(rgb(self.theme.active))
+            .shadow_lg();
+        deferred(
+            div()
+                .flex_none()
+                .relative()
+                .left(px(shift))
+                .cursor_grabbing()
+                .child(card)
+                .child(tab.left(px(0.)).border_color(rgb(background))),
+        )
+        .with_priority(1)
+        .into_any_element()
+    }
+
+    /// Follows the pointer anywhere in the window while a tab drag is armed,
+    /// so the drag carries on past the strip, and a lifted tab's release is
+    /// its drop rather than a click on whatever is under it.
+    fn tab_drag_listeners(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity();
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, _| {
+                let moving = view.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        moving.update(cx, |this, cx| {
+                            let held = event.pressed_button == Some(MouseButton::Left);
+                            if this.move_tab_drag(event.position, held, cx) {
+                                cx.stop_propagation();
+                            }
+                        });
+                    }
+                });
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                        view.update(cx, |this, cx| {
+                            if this.release_tab_drag(cx) {
+                                cx.stop_propagation();
+                            }
+                        });
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
     }
 
     fn strip_button(
@@ -555,5 +790,406 @@ impl HerdrWindow {
             }
         }
         row.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use core::prelude::v1::test;
+    use std::sync::Arc;
+
+    #[gpui::test]
+    fn a_tab_leads_its_title_with_its_status_dot_unless_unknown(cx: &mut TestAppContext) {
+        let label = "a title long enough to outgrow the narrowest tab";
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let mut view = crate::sidebar::layout_tests::fixture_window(window, cx);
+            let mut snapshot: herdr_client::protocol::ClientShellSnapshot = serde_json::from_str(
+                include_str!("../../../herdr-protocol/tests/fixtures/endpoint-snapshot-v1.json"),
+            )
+            .unwrap();
+            snapshot.tabs[0].label = label.into();
+            assert_eq!(snapshot.tabs[0].agent_status, AgentStatus::Working);
+            let mut plain = snapshot.tabs[0].clone();
+            plain.tab_id = "plain".into();
+            plain.focused = false;
+            plain.agent_status = AgentStatus::Unknown;
+            snapshot.tabs.push(plain);
+            view.live.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        cx.simulate_resize(size(px(1600.), px(600.)));
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+
+        // Layout snaps to device pixels, so edges agree within half of one.
+        let near = |a: Pixels, b: Pixels| (a - b).abs() <= px(0.5);
+        let tab = cx.debug_bounds("tab-w1:t1").unwrap();
+        let dot = cx.debug_bounds("tab-status-w1:t1").unwrap();
+        assert_eq!(dot.size, size(px(STATUS_WIDTH), px(STATUS_WIDTH)));
+        assert!(near(dot.left(), tab.left() + px(12.)), "{dot:?} in {tab:?}");
+        assert!(near(dot.center().y, tab.center().y), "{dot:?} in {tab:?}");
+
+        assert!(cx.debug_bounds("tab-status-plain").is_none());
+        let plain = cx.debug_bounds("tab-plain").unwrap();
+        // The dot and its gap widen the tab by what they take, so the
+        // title and close button keep their room.
+        assert!(
+            near(
+                tab.size.width - plain.size.width,
+                px(STATUS_WIDTH + DOT_GAP)
+            ),
+            "{tab:?} beside {plain:?}"
+        );
+    }
+
+    /// A window whose focused workspace has far more tabs than fit in
+    /// 800 pixels, the last of them focused when `last_focused`.
+    fn crowded(
+        cx: &mut TestAppContext,
+        last_focused: bool,
+    ) -> (Entity<HerdrWindow>, &mut VisualTestContext) {
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let mut view = crate::sidebar::layout_tests::fixture_window(window, cx);
+            let mut snapshot: herdr_client::protocol::ClientShellSnapshot = serde_json::from_str(
+                include_str!("../../../herdr-protocol/tests/fixtures/endpoint-snapshot-v1.json"),
+            )
+            .unwrap();
+            let first = snapshot.tabs[0].clone();
+            for index in 0..30 {
+                let mut tab = first.clone();
+                tab.tab_id = format!("x{index}");
+                tab.label = format!("tab number {index}");
+                tab.focused = false;
+                snapshot.tabs.push(tab);
+            }
+            if last_focused {
+                snapshot.tabs[0].focused = false;
+                snapshot.tabs[30].focused = true;
+                snapshot.focused_tab_id = Some("x29".into());
+            }
+            view.live.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        for _ in 0..2 {
+            cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        }
+        (view, cx)
+    }
+
+    /// Where the strip's tabs can be seen: from the first group's left
+    /// edge to its "+" button.
+    fn viewport(cx: &mut VisualTestContext) -> (Pixels, Pixels) {
+        let new_tab = cx.debug_bounds("new-tab").unwrap();
+        let strip = view_scroll(cx).bounds();
+        assert!(
+            (strip.right() - new_tab.left()).abs() <= px(0.5),
+            "{strip:?} {new_tab:?}"
+        );
+        (strip.left(), strip.right())
+    }
+
+    fn view_scroll(cx: &mut VisualTestContext) -> ScrollHandle {
+        cx.update(|window, cx| {
+            let view = window.root::<HerdrWindow>().flatten().unwrap();
+            view.update(cx, |view, _| {
+                let group = view.group_slots()[0].id;
+                view.strip_scroll(group)
+            })
+        })
+    }
+
+    #[gpui::test]
+    fn the_wheel_scrolls_a_crowded_strip_sideways(cx: &mut TestAppContext) {
+        let (_, cx) = crowded(cx, false);
+        let (_, right) = viewport(cx);
+        let last = cx.debug_bounds("tab-x29").unwrap();
+        assert!(last.left() > right, "{last:?} starts out of view");
+        let first = cx.debug_bounds("tab-w1:t1").unwrap();
+        for _ in 0..40 {
+            cx.simulate_event(ScrollWheelEvent {
+                position: first.center(),
+                delta: ScrollDelta::Pixels(point(px(0.), px(-200.))),
+                ..Default::default()
+            });
+        }
+        cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        let last = cx.debug_bounds("tab-x29").unwrap();
+        assert!(
+            (last.right() - right).abs() <= px(0.5),
+            "{last:?} ends at {right:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn the_chosen_tab_is_scrolled_into_view(cx: &mut TestAppContext) {
+        let (_, cx) = crowded(cx, true);
+        let (left, right) = viewport(cx);
+        let last = cx.debug_bounds("tab-x29").unwrap();
+        assert!(
+            last.left() >= left && (last.right() - right).abs() <= px(0.5),
+            "{last:?}"
+        );
+
+        // Scrolled away by hand, the strip stays put while the choice holds.
+        let first = cx.debug_bounds("tab-x28").unwrap();
+        cx.simulate_event(ScrollWheelEvent {
+            position: first.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(300.))),
+            ..Default::default()
+        });
+        cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        assert!(cx.debug_bounds("tab-x29").unwrap().left() > right);
+    }
+
+    #[gpui::test]
+    fn choosing_a_far_tab_later_scrolls_it_into_view(cx: &mut TestAppContext) {
+        let (view, cx) = crowded(cx, false);
+        let (left, right) = viewport(cx);
+        assert!(cx.debug_bounds("tab-x29").unwrap().left() > right);
+        view.update(cx, |view, cx| {
+            let snapshot = Arc::make_mut(view.live.snapshot.as_mut().unwrap());
+            snapshot.tabs[0].focused = false;
+            snapshot.tabs[30].focused = true;
+            snapshot.focused_tab_id = Some("x29".into());
+            cx.notify();
+        });
+        for _ in 0..2 {
+            cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        }
+        let last = cx.debug_bounds("tab-x29").unwrap();
+        assert!(
+            last.left() >= left && (last.right() - right).abs() <= px(0.5),
+            "{last:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn dragging_the_thumb_scrolls_the_strip(cx: &mut TestAppContext) {
+        let (_, cx) = crowded(cx, false);
+        let (left, right) = viewport(cx);
+        let thumb = cx.debug_bounds("tab-scroll-thumb").unwrap();
+        assert!(
+            (thumb.left() - left).abs() <= px(0.5),
+            "{thumb:?} starts at the left"
+        );
+        assert!(thumb.size.width < right - left);
+        let start = thumb.center();
+        let end = point(right + px(200.), start.y);
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(
+            start + point(px(10.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_move(end, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        let last = cx.debug_bounds("tab-x29").unwrap();
+        assert!(
+            (last.right() - right).abs() <= px(0.5),
+            "{last:?} ends at {right:?}"
+        );
+        let thumb = cx.debug_bounds("tab-scroll-thumb").unwrap();
+        assert!(
+            (thumb.right() - right).abs() <= px(0.5),
+            "{thumb:?} ends at the right"
+        );
+    }
+
+    #[gpui::test]
+    fn a_strip_whose_tabs_fit_has_no_thumb(cx: &mut TestAppContext) {
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let mut view = crate::sidebar::layout_tests::fixture_window(window, cx);
+            view.live.snapshot = Some(Arc::new(
+                serde_json::from_str(include_str!(
+                    "../../../herdr-protocol/tests/fixtures/endpoint-snapshot-v1.json"
+                ))
+                .unwrap(),
+            ));
+            view
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        for _ in 0..2 {
+            cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        }
+        assert!(cx.debug_bounds("tab-w1:t1").is_some());
+        assert!(cx.debug_bounds("tab-scroll-thumb").is_none());
+    }
+
+    /// A connected window whose focused workspace has four Herdr tabs, `a`
+    /// to `d`, with room for all of them.
+    fn four_tabs(
+        cx: &mut TestAppContext,
+        supports_tab_move: bool,
+    ) -> (Entity<HerdrWindow>, &mut VisualTestContext) {
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let mut view = crate::sidebar::layout_tests::fixture_window(window, cx);
+            let mut snapshot: herdr_client::protocol::ClientShellSnapshot = serde_json::from_str(
+                include_str!("../../../herdr-protocol/tests/fixtures/endpoint-snapshot-v1.json"),
+            )
+            .unwrap();
+            let first = snapshot.tabs[0].clone();
+            snapshot.tabs = ["a", "b", "c", "d"]
+                .into_iter()
+                .map(|id| {
+                    let mut tab = first.clone();
+                    tab.tab_id = id.into();
+                    tab.label = format!("tab {id}");
+                    tab.focused = id == "a";
+                    tab
+                })
+                .collect();
+            snapshot.focused_tab_id = Some("a".into());
+            view.live.snapshot = Some(Arc::new(snapshot));
+            view.live.status = crate::state::ConnectionStatus::Connected;
+            view.live.supports_tab_move = supports_tab_move;
+            view
+        });
+        cx.simulate_resize(size(px(1600.), px(600.)));
+        for _ in 0..2 {
+            cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+        }
+        (view, cx)
+    }
+
+    fn draw(cx: &mut VisualTestContext) {
+        cx.update(|window, cx| crate::sidebar::layout_tests::full_draw(window, cx).clear(cx));
+    }
+
+    fn target(view: &Entity<HerdrWindow>, cx: &mut VisualTestContext) -> Option<(usize, String)> {
+        view.read_with(cx, |view, _| {
+            let target = view.tab_drag.as_ref()?.target.as_ref()?;
+            let beside = match &target.beside {
+                crate::reorder::Beside::Before(Pick::Herdr(id)) => format!("before {id}"),
+                crate::reorder::Beside::After(Pick::Herdr(id)) => format!("after {id}"),
+                other => format!("{other:?}"),
+            };
+            Some((target.slot, beside))
+        })
+    }
+
+    #[gpui::test]
+    fn holding_a_tab_lifts_it_bigger_and_a_release_picks_the_gap(cx: &mut TestAppContext) {
+        let (view, cx) = four_tabs(cx, true);
+        let a = cx.debug_bounds("tab-a").unwrap();
+        let b = cx.debug_bounds("tab-b").unwrap();
+        let c = cx.debug_bounds("tab-c").unwrap();
+
+        // A quick click stays a click.
+        cx.simulate_mouse_down(a.center(), MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(a.center(), MouseButton::Left, Modifiers::default());
+        cx.executor().advance_clock(crate::reorder::LIFT_DELAY * 2);
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert!(view.tab_drag.is_none()));
+
+        // Held in place, it lifts without moving, on a card larger than it.
+        cx.simulate_mouse_down(a.center(), MouseButton::Left, Modifiers::default());
+        view.read_with(cx, |view, _| {
+            assert!(view.tab_drag.as_ref().unwrap().lifted.is_none())
+        });
+        cx.executor().advance_clock(crate::reorder::LIFT_DELAY);
+        cx.run_until_parked();
+        draw(cx);
+        view.read_with(cx, |view, _| {
+            assert!(view.tab_drag.as_ref().unwrap().lifted.is_some())
+        });
+        assert_eq!(target(&view, cx), None);
+        assert_eq!(cx.debug_bounds("tab-a").unwrap(), a);
+        let card = cx.debug_bounds("lifted-tab-a").unwrap();
+        assert!(
+            card.left() < a.left() && card.right() > a.right(),
+            "{card:?} around {a:?}"
+        );
+        assert!(
+            card.top() < a.top() && card.bottom() > a.bottom(),
+            "{card:?} around {a:?}"
+        );
+
+        // Past the second tab's middle, it lands before the third, which
+        // the second closes the gap for.
+        let over = point(a.center().x + b.size.width / 2. + px(4.), a.center().y);
+        for _ in 0..2 {
+            cx.simulate_mouse_move(over, MouseButton::Left, Modifiers::default());
+            draw(cx);
+        }
+        assert_eq!(target(&view, cx), Some((2, "before c".into())));
+        let lifted = cx.debug_bounds("tab-a").unwrap();
+        assert!((lifted.left() - (a.left() + over.x - a.center().x)).abs() <= px(0.5));
+        let passed = cx.debug_bounds("tab-b").unwrap();
+        assert!((passed.left() - a.left()).abs() <= px(0.5), "{passed:?}");
+        assert_eq!(cx.debug_bounds("tab-c").unwrap(), c);
+
+        // Carried past the last tab, it lands after it.
+        let end = point(a.center().x + px(2000.), a.center().y);
+        for _ in 0..2 {
+            cx.simulate_mouse_move(end, MouseButton::Left, Modifiers::default());
+            draw(cx);
+        }
+        assert_eq!(target(&view, cx), Some((4, "after d".into())));
+
+        // The release is the drop, not a click on the tab under it; without
+        // a daemon nothing moves, so every tab is back in place.
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        draw(cx);
+        view.read_with(cx, |view, _| assert!(view.tab_drag.is_none()));
+        assert_eq!(cx.debug_bounds("tab-a").unwrap(), a);
+        assert_eq!(cx.debug_bounds("tab-b").unwrap(), b);
+        assert!(cx.debug_bounds("lifted-tab-a").is_none());
+
+        // A drag lifts without waiting, and escape puts it back.
+        cx.simulate_mouse_down(c.center(), MouseButton::Left, Modifiers::default());
+        let back = point(a.left() + px(2.), c.center().y);
+        for _ in 0..2 {
+            cx.simulate_mouse_move(back, MouseButton::Left, Modifiers::default());
+            draw(cx);
+        }
+        assert_eq!(target(&view, cx), Some((0, "before a".into())));
+        cx.simulate_keystrokes("escape");
+        draw(cx);
+        view.read_with(cx, |view, _| assert!(view.tab_drag.is_none()));
+        assert_eq!(cx.debug_bounds("tab-c").unwrap(), c);
+    }
+
+    #[gpui::test]
+    fn tabs_stay_put_when_the_daemon_cannot_move_them(cx: &mut TestAppContext) {
+        let (view, cx) = four_tabs(cx, false);
+        let a = cx.debug_bounds("tab-a").unwrap();
+        cx.simulate_mouse_down(a.center(), MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(
+            a.center() + point(px(200.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        draw(cx);
+        view.read_with(cx, |view, _| assert!(view.tab_drag.is_none()));
+        assert_eq!(cx.debug_bounds("tab-a").unwrap(), a);
+        cx.simulate_mouse_up(a.center(), MouseButton::Left, Modifiers::default());
+    }
+
+    #[gpui::test]
+    fn carrying_a_tab_to_the_strip_s_end_scrolls_it(cx: &mut TestAppContext) {
+        let (view, cx) = crowded(cx, false);
+        view.update(cx, |view, _| view.live.supports_tab_move = true);
+        view.update(cx, |view, _| {
+            view.live.status = crate::state::ConnectionStatus::Connected
+        });
+        let (_, right) = viewport(cx);
+        let first = cx.debug_bounds("tab-w1:t1").unwrap();
+        cx.simulate_mouse_down(first.center(), MouseButton::Left, Modifiers::default());
+        let edge = point(right - px(2.), first.center().y);
+        cx.simulate_mouse_move(edge, MouseButton::Left, Modifiers::default());
+        let scroll = view_scroll(cx);
+        let before = scroll.offset().x;
+        draw(cx);
+        assert!(scroll.offset().x < before, "{:?}", scroll.offset());
+        // The carried tab stays within the strip, under the pointer's end.
+        let carried = cx.debug_bounds("tab-w1:t1").unwrap();
+        assert!(carried.right() <= right + px(0.5), "{carried:?}");
+        cx.simulate_keystrokes("escape");
     }
 }
