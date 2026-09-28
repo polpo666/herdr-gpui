@@ -82,6 +82,8 @@ pub struct Config {
     pub theme: String,
     pub confirm_close_tab: bool,
     pub show_agents: bool,
+    /// Copy a terminal selection as soon as its pointer drag is released.
+    pub copy_on_select: bool,
     /// Plan usage of the selected host's AI services in the status bar.
     pub usage: crate::usage::UsageConfig,
     pub option_as_alt: OptionAsAlt,
@@ -579,6 +581,7 @@ impl Default for Config {
             github: GitHubConfig::default(),
             confirm_close_tab: true,
             show_agents: true,
+            copy_on_select: true,
             usage: crate::usage::UsageConfig::default(),
             option_as_alt: OptionAsAlt::default(),
             open_links_in: LinkTarget::default(),
@@ -603,6 +606,7 @@ struct Settings {
     theme: Option<String>,
     confirm_close_tab: Option<bool>,
     show_agents: Option<bool>,
+    copy_on_select: Option<bool>,
     usage: crate::usage::UsageConfig,
     option_as_alt: OptionAsAlt,
     open_links_in: LinkTarget,
@@ -958,6 +962,7 @@ impl Config {
         }
         config.confirm_close_tab = settings.confirm_close_tab.unwrap_or(true);
         config.show_agents = settings.show_agents.unwrap_or(true);
+        config.copy_on_select = settings.copy_on_select.unwrap_or(true);
         settings.usage.validate()?;
         config.usage = settings.usage;
         config.option_as_alt = settings.option_as_alt;
@@ -2145,7 +2150,7 @@ mod tests {
     }
 
     #[test]
-    fn appearance_and_close_options_preserve_defaults() -> anyhow::Result<()> {
+    fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
         for config in [
             Config::default(),
             Config::parse("")?,
@@ -2153,12 +2158,17 @@ mod tests {
         ] {
             assert!(config.confirm_close_tab);
             assert!(config.show_agents);
+            assert!(config.copy_on_select);
         }
-        let config = Config::parse("confirm_close_tab = false\nshow_agents = false")?;
+        let config = Config::parse(
+            "confirm_close_tab = false\nshow_agents = false\ncopy_on_select = false",
+        )?;
         assert!(!config.confirm_close_tab);
         assert!(!config.show_agents);
+        assert!(!config.copy_on_select);
         assert!(Config::parse("confirm_close_tab = 'false'").is_err());
         assert!(Config::parse("show_agents = 0").is_err());
+        assert!(Config::parse("copy_on_select = 'false'").is_err());
         Ok(())
     }
 

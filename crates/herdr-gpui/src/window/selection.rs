@@ -1,7 +1,7 @@
 //! Selecting terminal cells with the pointer and copying them. The gesture is
-//! client-local: it reads the live surface the client already has, never sends
-//! input to the daemon, and writes the clipboard only when the user releases a
-//! selection they made.
+//! client-local: it reads the live surface the client already has and never
+//! sends input to the daemon. Depending on configuration, release either copies
+//! immediately or leaves the selection highlighted for an explicit copy.
 
 use super::HerdrWindow;
 use crate::terminal::Selection;
@@ -50,10 +50,10 @@ impl HerdrWindow {
         true
     }
 
-    /// Ends a drag: what it chose goes to the clipboard, the highlight goes
-    /// away, and the flash says so. Returns whether the release belonged to
-    /// the selection, since a press that chose no cells is still the click
-    /// that opens a link under the pointer.
+    /// Ends a drag, optionally copying and clearing it when copy-on-select is
+    /// enabled. Returns whether the release belonged to a nonempty selection,
+    /// since a press that chose no cells is still the click that opens a link
+    /// under the pointer.
     pub(crate) fn release_selection(&mut self, cx: &mut Context<Self>) -> bool {
         if !self
             .selection
@@ -63,14 +63,23 @@ impl HerdrWindow {
             return false;
         }
         let selected = !self.selection_is_empty();
-        let copied = selected && self.copy_selection(cx);
-        // The gesture is over either way: nothing stays highlighted behind it.
-        self.selection = None;
+        let copied = selected && self.config.copy_on_select && self.copy_selection(cx);
+        if self.config.copy_on_select || !selected {
+            self.selection = None;
+        }
         if copied && self.config.clipboard_toast.enabled {
             self.show_flash(super::Flash::success("copied to clipboard"), cx);
         }
         cx.notify();
         selected
+    }
+
+    /// Copies a retained selection without changing its highlight.
+    pub(crate) fn copy(&mut self, cx: &mut Context<Self>) {
+        if self.copy_selection(cx) && self.config.clipboard_toast.enabled {
+            self.show_flash(super::Flash::success("copied to clipboard"), cx);
+        }
+        cx.notify();
     }
 
     /// Writes the current selection to the clipboard, reporting whether the
@@ -274,6 +283,54 @@ mod tests {
             assert!(view.tick_flash(expires));
             assert!(view.flash.is_none());
             assert!(!view.tick_flash(expires));
+        });
+    }
+
+    #[gpui::test]
+    fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let mut view = fixture_window(window, cx);
+            view.config.copy_on_select = false;
+            let mut frame = surface(&["hello there"], 12);
+            let snapshot = view.live.snapshot.as_ref().unwrap();
+            frame.boot_id = snapshot.boot_id.clone();
+            frame.projection_revision = snapshot.revision;
+            view.live.surface = Some(Arc::new(frame));
+            view
+        });
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        let (origin, cell) = view.read_with(cx, |view, _| {
+            (
+                view.bounds.origin,
+                (view.cell_width, view.config.terminal.line_height()),
+            )
+        });
+        let at = |column: f32| origin + point(px(column * cell.0), px(cell.1 / 2.));
+
+        cx.simulate_mouse_down(at(0.), MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(at(5.), MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(at(5.), MouseButton::Left, Modifiers::default());
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+            Some("before".into())
+        );
+        view.read_with(cx, |view, _| {
+            assert!(view.selection.is_some());
+            assert!(view.flash.is_none());
+        });
+
+        view.update(cx, |view, cx| view.copy(cx));
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+            Some("hello".into())
+        );
+        view.read_with(cx, |view, _| {
+            assert!(view.selection.is_some());
+            assert!(view.flash.is_some());
         });
     }
 

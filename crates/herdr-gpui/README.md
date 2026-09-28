@@ -397,6 +397,11 @@ following the daemon config. Only these two keys are read from that file, it is
 never written, and an unreadable, oversized, malformed, or unrecognized value
 leaves the defaults standing.
 
+Set `copy_on_select = false` at the top level to retain a terminal selection
+after the pointer button is released. The clipboard is then changed only by
+Cmd-C or **Edit > Copy**. It defaults to `true` for the original release-to-copy
+behavior.
+
 The `src/config.rs` module exposes `Config::load()` and
 `Config::path()` (managed defaults) and `Config::local_path()` (user overrides),
 all returning the crate's typed `Result`. `Config::theme()` resolves
@@ -546,10 +551,13 @@ GUI pane menu. In applications without mouse reporting, selection and the pane
 menu work without Shift. A forwarded drag stays in the pane or popup where it
 started, including when the pointer moves outside it.
 
-Drag across the terminal to select cells; releasing the button copies them, drops
-the highlight, and shows the `copied to clipboard` flash described under
-[Configuration](#configuration). Selection is client-local: it reads the surface
-the client already has, sends nothing to the daemon, and asks it for nothing.
+Drag across the terminal to select cells. With the default `copy_on_select = true`,
+releasing the button copies them, drops the highlight, and shows the `copied to
+clipboard` flash described under [Configuration](#configuration). With
+`copy_on_select = false`, releasing retains the highlight without changing the
+clipboard; use Cmd-C or **Edit > Copy** to copy it. Selection is client-local: it
+reads the surface the client already has, sends nothing to the daemon, and asks
+it for nothing.
 
 A selection stays inside the pane it started in, and a drag that leaves the pane
 or the window selects up to its edge rather than into its neighbor. A selection
@@ -565,12 +573,12 @@ clipboard, and trailing blanks are dropped only from rows selected through to th
 pane's right edge, where a terminal pads short lines. A copy is bounded, and one
 too large to copy reports in the status bar instead.
 
-The highlight is cleared by the release that copies it, and by a reconnect,
-detach, or endpoint switch. Cmd-V still sends semantic paste; there is no copy
-keystroke, because the release has already copied and nothing stays selected.
-For the same reason, the native **Edit** menu enables only **Paste** while a
-terminal has focus. In dialogs and search fields, **Cut**, **Copy**, **Paste**,
-and **Select All** do the same as Cmd-X, Cmd-C, Cmd-V, and Cmd-A.
+The highlight is cleared by a release that copies it, by starting another
+selection, and by a reconnect, detach, or endpoint switch. Cmd-C copies a
+retained selection and Cmd-V sends semantic paste. The native **Edit** menu
+enables **Copy** and **Paste** while a terminal has focus. In dialogs and search
+fields, **Cut**, **Copy**, **Paste**, and **Select All** do the same as Cmd-X,
+Cmd-C, Cmd-V, and Cmd-A.
 
 ## File Drops
 

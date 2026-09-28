@@ -138,8 +138,7 @@ impl Render for HerdrWindow {
             .bg(rgb(self.theme.background))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key_down))
-            // A selection is copied when it is released, so the terminal has
-            // nothing for Cut, Copy, or Select All to act on.
+            .on_action(cx.listener(|this, _: &crate::actions::Copy, _, cx| this.copy(cx)))
             .on_action(cx.listener(|this, _: &crate::actions::Paste, _, cx| this.paste(cx)))
             .on_scroll_wheel(cx.listener(Self::scroll_wheel))
             .on_drop(cx.listener(Self::drop_terminal_files))
