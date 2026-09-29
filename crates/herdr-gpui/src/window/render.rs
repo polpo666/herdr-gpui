@@ -302,6 +302,7 @@ impl Render for HerdrWindow {
                             painter.borrow_mut().paint_frame(
                                 &surface.frame,
                                 bounds.origin,
+                                Some(bounds.size),
                                 cell_width,
                                 &font,
                                 &panes,
@@ -323,6 +324,7 @@ impl Render for HerdrWindow {
                                 painter.borrow_mut().paint_frame(
                                     &popup.frame,
                                     bounds.origin + offset,
+                                    None,
                                     cell_width,
                                     &font,
                                     &rows,
@@ -559,7 +561,7 @@ impl Render for HerdrWindow {
                                 .size(px(8.))
                                 .flex_none()
                                 .rounded_full()
-                                .bg(rgb(self.theme.palette[3]))
+                                .bg(rgb(self.theme.ink(self.theme.palette[3])))
                                 .with_animation(
                                     "daemon-starting-loader",
                                     Animation::new(Duration::from_secs(1)).repeat(),
@@ -575,7 +577,7 @@ impl Render for HerdrWindow {
                                 .size(px(6.))
                                 .flex_none()
                                 .rounded_full()
-                                .bg(rgb(self.theme.palette[1]))
+                                .bg(rgb(self.theme.ink(self.theme.palette[1])))
                                 .into_any_element()
                         },
                     ))
