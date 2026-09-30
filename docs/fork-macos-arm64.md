@@ -19,3 +19,12 @@ The workflow uses the repository's pinned Rust toolchain, runs the release CLI
 tests, verifies the binary is arm64, and includes third-party license notices.
 It needs no signing secrets, publishes no GitHub Release, and retains artifacts
 for 30 days. It does not run the full workspace or native GUI test suites.
+
+Rust registry/git dependencies, compiled dependency artifacts under `target`,
+and installed Cargo tools (including `cargo-about`) are cached between runs.
+The cache key accounts for the Rust toolchain, dependency manifests/lockfile,
+macOS deployment target, and the pinned cargo-about version. A matching
+installed cargo-about is reused instead of compiled again. The first run of
+this workflow version must populate the cache; dependency or toolchain changes
+can require recompilation. Application code, linking, tests, and packaging still
+run. Cache restore/save logs show whether reuse actually occurred.
