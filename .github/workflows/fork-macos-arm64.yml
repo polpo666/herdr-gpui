@@ -1,0 +1,72 @@
+name: Fork macOS arm64
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: fork-macos-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'polpo666/herdr-gpui'
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check native arm64 toolchain
+        run: |
+          rustup show
+          test "$(uname -m)" = arm64
+          test "$(rustc -vV | sed -n 's/^host: //p')" = aarch64-apple-darwin
+      - name: Install build helpers
+        run: |
+          brew install just
+          cargo install cargo-about --version 0.9.2 --locked --features cli
+          cargo about --version
+      - name: Build and test release executable
+        run: just test-build
+      - name: Assemble app with license notices
+        run: |
+          just bundle
+          app=target/release/Herdr.app
+          test "$(lipo -archs "$app/Contents/MacOS/Herdr")" = arm64
+          plutil -insert LSMinimumSystemVersion -string 15.0 "$app/Contents/Info.plist"
+          python3 scripts/release/generate-notices.py "$app/Contents/Resources/THIRD-PARTY-NOTICES.txt"
+          cp LICENSE NOTICE assets/icons/LICENSE-octicons "$app/Contents/Resources/"
+          cp crates/herdr-protocol/LICENSE-APACHE crates/herdr-protocol/NOTICE.md "$app/Contents/Resources/"
+          cp crates/herdr-gpui/SOUND-NOTICE.md "$app/Contents/Resources/"
+          printf '%s\n' "$GITHUB_REPOSITORY@$GITHUB_SHA" > "$app/Contents/Resources/BUILD.txt"
+          codesign --force --sign - "$app"
+          codesign --verify --strict "$app"
+          plutil -lint "$app/Contents/Info.plist"
+      - name: Archive app
+        run: |
+          mkdir -p dist
+          archive="Herdr-${GITHUB_SHA:0:12}-macos-arm64.app.zip"
+          ditto -c -k --sequesterRsrc --keepParent target/release/Herdr.app "dist/$archive"
+          (cd dist && shasum -a 256 "$archive" > SHA256SUMS)
+          {
+            echo '### macOS arm64 build'
+            printf 'Commit: %s\n\n' "$GITHUB_SHA"
+            echo 'Download the artifact below and extract the app ZIP inside it.'
+            echo 'Requires Apple Silicon and macOS 15+. Ad-hoc signed, not Apple notarized.'
+            echo 'This development build does not enable the upstream automatic updater.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned to the existing release workflow
+        with:
+          name: Herdr-macos-arm64-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
