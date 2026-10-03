@@ -846,13 +846,14 @@ Right-Click** switches the pane back. A routed pane whose application has mouse
 reporting off opens the menu, since nothing would receive the click. A
 mouse-aware popup has no pane menu and keeps its right-clicks.
 
-Drag across the terminal to select cells. With the default `copy_on_select = true`,
-releasing the button copies them, drops the highlight, and shows the `copied to
-clipboard` flash described under [Configuration](#configuration). With
-`copy_on_select = false`, releasing retains the highlight without changing the
-clipboard; use Cmd-C or **Edit > Copy** to copy it. Selection is client-local: it
-reads the surface the client already has, sends nothing to the daemon, and asks
-it for nothing.
+Drag across the terminal to select cells. Releasing copies them when both the
+GUI's `copy_on_select` preference and Herdr's shared setting are enabled, and
+shows the `copied to clipboard` flash described under
+[Configuration](#configuration). With the GUI's `copy_on_select = false`, the
+release keeps the highlight without changing the clipboard; Cmd-C or **Edit >
+Copy** copies it and keeps the highlight. Selection is client-local: it reads
+the surface the client already has, and asks the daemon only for rows scrolled
+out of view.
 
 A program that copies with OSC 52 — many editors and agent CLIs do, especially
 when they own the mouse — is honored too: the daemon forwards the bytes to this
@@ -874,12 +875,29 @@ clipboard, and trailing blanks are dropped only from rows selected through to th
 pane's right edge, where a terminal pads short lines. A copy is bounded, and one
 too large to copy reports in the status bar instead.
 
-The highlight is cleared by a release that copies it, by starting another
-selection, and by a reconnect, detach, or endpoint switch. Cmd-C copies a
-retained selection and Cmd-V sends semantic paste. The native **Edit** menu
-enables **Copy** and **Paste** while a terminal has focus. In dialogs and search
-fields, **Cut**, **Copy**, **Paste**, and **Select All** do the same as Cmd-X,
-Cmd-C, Cmd-V, and Cmd-A.
+The highlight stays after the release copies it, until the next click or
+keystroke, a reconnect, detach, or endpoint switch. While it shows, Cmd-C and
+**Edit > Copy** copy it again; Ctrl-C still reaches the pane, which interrupts
+the program there and clears the highlight. Set `keep_selection_after_copy =
+false` in `config-gpui.local.toml` to clear the highlight on release instead.
+
+With Herdr's `[ui] copy_on_select = false`, shared with the TUI, the release
+copies nothing: the highlight waits for Cmd-C, Ctrl-C, or **Edit > Copy**, and
+any other key drops it, as in Herdr.
+
+Cmd-V sends semantic paste. While a terminal has focus, the native **Edit** menu
+enables **Paste**, and **Copy** while a selection is highlighted. In dialogs and
+search fields, **Cut**, **Copy**, **Paste**, and **Select All** do the same as
+Cmd-X, Cmd-C, Cmd-V, and Cmd-A.
+
+The terminal is exposed to accessibility clients, such as VoiceOver and
+selection tools that read the focused element's selected text (PopClip,
+OpenClip, dictionary lookup). It reads as a text area holding the rows on
+screen of the pane with the selection, or, without one, of the focused pane
+or open popup. Each row reads as a copy would: concealed cells as blanks and
+no trailing padding. A selection reaching rows scrolled out of view exposes
+only its visible part, though the copy still includes all of it. Copy mode's
+keyboard selection is not exposed.
 
 ## File Drops
 
