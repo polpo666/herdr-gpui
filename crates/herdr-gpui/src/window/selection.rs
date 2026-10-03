@@ -83,12 +83,14 @@ impl HerdrWindow {
         true
     }
 
-    /// Herdr's shared `ui.copy_on_select`, on until the shared config loads.
+    /// Auto-copy requires both the GUI preference and Herdr's shared setting.
     fn copy_on_select(&self) -> bool {
-        self.config.copy_on_select && self.settings
-            .shared
-            .as_ref()
-            .is_none_or(|shared| shared.copy_on_select)
+        self.config.copy_on_select
+            && self
+                .settings
+                .shared
+                .as_ref()
+                .is_none_or(|shared| shared.copy_on_select)
     }
 
     /// Ends a drag: what it chose goes to the clipboard, the highlight goes
@@ -471,9 +473,7 @@ mod tests {
         }
     }
 
-    /// A drag across the painted cells copies what it covered when the button
-    /// comes up, leaves nothing selected behind it, and says so; a press alone
-    /// leaves the clipboard alone.
+    /// The fork's GUI override retains the highlight even after explicit copy.
     #[gpui::test]
     fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAppContext) {
         let (view, cx) = cx.add_window_view(|window, cx| {
@@ -511,7 +511,7 @@ mod tests {
             assert!(view.flash.is_none());
         });
 
-        view.update(cx, |view, cx| view.copy_retained_selection(cx));
+        cx.simulate_keystrokes("cmd-c");
         assert_eq!(
             cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
             Some("hello".into())

@@ -566,9 +566,9 @@ mod tests {
             cx.run_until_parked();
         };
 
-        // The terminal can copy a retained selection and paste into its pane.
+        // A released selection is already copied; the terminal only pastes.
         cx.update(|window, cx| view.read(cx).focus.clone().focus(window, cx));
-        assert_eq!(available(cx), ["Copy", "Paste"]);
+        assert_eq!(available(cx), ["Paste"]);
 
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
