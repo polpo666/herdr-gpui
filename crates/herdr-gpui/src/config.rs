@@ -233,7 +233,13 @@ impl Default for BellConfig {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct NotificationConfig {
+    /// In-app toasts, which take precedence over OS notifications.
     pub enabled: bool,
+    /// Shared `system` delivery: post daemon notifications to the OS
+    /// notification center. Not a native key, so a local override of
+    /// `enabled` decides between the two.
+    #[serde(skip)]
+    pub system: bool,
     #[serde(deserialize_with = "notification_delay")]
     pub delay_seconds: u64,
     pub position: herdr_client::protocol::ToastHerdrPosition,
@@ -243,6 +249,7 @@ impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            system: false,
             delay_seconds: 1,
             position: herdr_client::protocol::ToastHerdrPosition::BottomRight,
         }
@@ -259,10 +266,31 @@ pub(crate) struct NotificationSettings {
     position: Option<herdr_client::protocol::ToastHerdrPosition>,
 }
 
+/// Where a daemon notification that passes the shared policy is presented.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NotificationDelivery {
+    Off,
+    InApp,
+    System,
+}
+
+impl NotificationConfig {
+    pub(crate) fn delivery(self) -> NotificationDelivery {
+        if self.enabled {
+            NotificationDelivery::InApp
+        } else if self.system {
+            NotificationDelivery::System
+        } else {
+            NotificationDelivery::Off
+        }
+    }
+}
+
 impl NotificationSettings {
     fn resolve(self, base: NotificationConfig) -> NotificationConfig {
         NotificationConfig {
             enabled: self.enabled.unwrap_or(base.enabled),
+            system: base.system,
             delay_seconds: self.delay_seconds.unwrap_or(base.delay_seconds),
             position: self.position.unwrap_or(base.position),
         }
@@ -966,10 +994,12 @@ fn theme_directories() -> Result<Vec<PathBuf>> {
 
 impl Config {
     /// Pure application of a prepared shared snapshot. Native explicit keys win;
-    /// terminal/system delivery does not implicitly enable this GUI's in-app toasts.
+    /// system delivery posts OS notifications instead of in-app toasts, and
+    /// terminal delivery has no outer terminal to reach from this GUI.
     pub(crate) fn apply_shared_notifications(&mut self, shared: &crate::herdr_settings::Settings) {
         self.notifications = self.notification_overrides.resolve(NotificationConfig {
             enabled: shared.toast_delivery == crate::herdr_settings::ToastDelivery::Herdr,
+            system: shared.toast_delivery == crate::herdr_settings::ToastDelivery::System,
             delay_seconds: shared.toast_delay_seconds,
             position: shared.toast_position,
         });
@@ -1871,12 +1901,12 @@ mod tests {
             config.clipboard_toast.enabled = false;
             config.contrast = Contrast::High;
             let session = config.clone();
-            for (delivery, enabled) in [
-                ("herdr", true),
-                ("off", false),
-                ("system", false),
-                ("terminal", false),
-                ("herdr", true),
+            for (delivery, enabled, system) in [
+                ("herdr", true, false),
+                ("off", false, false),
+                ("system", false, true),
+                ("terminal", false, false),
+                ("herdr", true, false),
             ] {
                 let shared = Shared::parse_text(&format!(
                     "[ui.toast]\ndelivery = '{delivery}'\ndelay_seconds = 7\n[ui.toast.herdr]\nposition = 'top-left'\n"
@@ -1886,6 +1916,7 @@ mod tests {
                     config.notifications,
                     NotificationConfig {
                         enabled,
+                        system,
                         delay_seconds: 7,
                         position: ToastHerdrPosition::TopLeft
                     }
@@ -1943,6 +1974,7 @@ mod tests {
                     config.notifications,
                     NotificationConfig {
                         enabled,
+                        system: false,
                         delay_seconds,
                         position
                     },
@@ -1956,6 +1988,19 @@ mod tests {
                 "[ui.toast]\ndelivery = '{delivery}'"
             ))?);
             assert!(config.notifications.enabled);
+            assert_eq!(config.notifications.delivery(), NotificationDelivery::InApp);
+        }
+        // A local opt-out of in-app toasts leaves shared system delivery in charge.
+        let mut config = Config::parse("[notifications]\nenabled = false")?;
+        for (delivery, expected) in [
+            ("system", NotificationDelivery::System),
+            ("herdr", NotificationDelivery::Off),
+            ("terminal", NotificationDelivery::Off),
+        ] {
+            config.apply_shared_notifications(&Shared::parse_text(&format!(
+                "[ui.toast]\ndelivery = '{delivery}'"
+            ))?);
+            assert_eq!(config.notifications.delivery(), expected, "{delivery}");
         }
         Ok(())
     }
@@ -2289,6 +2334,7 @@ mod tests {
                     config.notifications,
                     NotificationConfig {
                         enabled: true,
+                        system: false,
                         delay_seconds: delay,
                         position
                     }
@@ -2310,6 +2356,13 @@ mod tests {
             assert!(matches!(error, Error::Toml(_)), "{field}: {error:?}");
             assert!(error.source().is_some());
         }
+        // Delivery is a shared Herdr setting; a native `system` key is unknown.
+        assert_eq!(
+            Config::parse("[notifications]\nsystem=true")?
+                .notifications
+                .delivery(),
+            NotificationDelivery::Off
+        );
         Ok(())
     }
 
