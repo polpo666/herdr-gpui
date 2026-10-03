@@ -35,6 +35,10 @@ show_agents = true
 # Copy a terminal selection immediately when the pointer button is released.
 # Set false to keep the highlight and copy only with Cmd-C or Edit > Copy.
 copy_on_select = true
+# Show CPU and memory: the selected host's in the status bar, and each host's
+# on its sidebar row. Connected remote hosts are read over SSH every couple of
+# seconds; false stops all sampling. Also under Settings > General.
+show_system_load = true
 # macOS only: whether Option-letter reaches a pane as an Alt shortcut (Alt-P
 # for Option-P) or types the character the keyboard layout puts there. "auto"
 # sends Alt on the U.S. and ABC layouts and types elsewhere, so layouts that
