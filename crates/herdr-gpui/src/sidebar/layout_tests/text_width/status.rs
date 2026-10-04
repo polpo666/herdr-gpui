@@ -1,0 +1,40 @@
+//! Status bar checks.
+use super::*;
+
+pub(super) fn check_status_bar(
+    view: &Entity<HerdrWindow>,
+    cx: &mut gpui::VisualTestContext,
+) -> Result<()> {
+    // Exercise the real status bar without starting a daemon connection.
+    view.update(cx, |view, cx| {
+        view.marked = "composition ".repeat(100);
+        view.local_error = Some("long connection error ".repeat(100));
+        cx.notify();
+    });
+    for width in [480., 800.] {
+        cx.simulate_resize(size(px(width), px(600.)));
+        cx.update(|window, cx| full_draw(window, cx).clear(cx));
+        let status = cx.debug_bounds("connection-status").unwrap();
+        assert!(cx.debug_bounds("report-issue").is_none());
+        let version = cx
+            .debug_bounds("status-version")
+            .context("status version bounds")?;
+        assert!(version.size.width > px(0.));
+        assert!(version.left() >= status.left());
+        assert!(version.right() <= status.right());
+        assert!(version.top() >= status.top());
+        assert!(version.bottom() <= status.bottom());
+        let theme = cx.debug_bounds("status-theme").unwrap();
+        let keybinds = cx.debug_bounds("status-keybinds").unwrap();
+        assert!(theme.left() >= status.left());
+        assert!(theme.right() <= keybinds.left());
+        assert!(keybinds.right() <= version.left());
+        for button in [theme, keybinds] {
+            assert!(button.size.width > px(0.));
+            assert!(button.top() >= status.top());
+            assert!(button.bottom() <= status.bottom());
+        }
+
+    }
+    Ok(())
+}
