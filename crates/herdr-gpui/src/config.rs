@@ -60,6 +60,7 @@ pub(crate) mod corners {
 pub struct Config {
     pub theme: String,
     pub confirm_close_tab: bool,
+    pub confirm_close_pane: bool,
     pub show_agents: bool,
     /// Copy a terminal selection as soon as its pointer drag is released.
     pub copy_on_select: bool,
@@ -268,6 +269,7 @@ impl Default for Config {
             theme: "Default".into(),
             github: GitHubConfig::default(),
             confirm_close_tab: true,
+            confirm_close_pane: true,
             show_agents: true,
             copy_on_select: true,
             show_system_load: true,
@@ -305,6 +307,7 @@ impl Default for Config {
 struct Settings {
     theme: Option<String>,
     confirm_close_tab: Option<bool>,
+    confirm_close_pane: Option<bool>,
     show_agents: Option<bool>,
     copy_on_select: Option<bool>,
     show_system_load: Option<bool>,
@@ -614,6 +617,7 @@ impl Config {
             config.theme = theme;
         }
         config.confirm_close_tab = settings.confirm_close_tab.unwrap_or(true);
+        config.confirm_close_pane = settings.confirm_close_pane.unwrap_or(true);
         config.show_agents = settings.show_agents.unwrap_or(true);
         config.copy_on_select = settings.copy_on_select.unwrap_or(true);
         config.show_system_load = settings.show_system_load.unwrap_or(true);
