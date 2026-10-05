@@ -67,6 +67,9 @@ pub struct Config {
     pub copy_on_select: bool,
     /// CPU and memory of the selected host in the status bar.
     pub show_system_load: bool,
+    /// Snapshot a checkout's files each time one of its agents starts or
+    /// finishes a turn, so they can be rolled back.
+    pub agent_checkpoints: bool,
     /// Ports each workspace listens on, in the sidebar and the status bar.
     pub show_listening_ports: bool,
     /// How far the app's own marks and labels stand off its chrome.
@@ -274,6 +277,7 @@ impl Default for Config {
             show_agents: true,
             copy_on_select: true,
             show_system_load: true,
+            agent_checkpoints: true,
             show_listening_ports: true,
             contrast: Contrast::default(),
             usage: crate::usage::UsageConfig::default(),
@@ -312,6 +316,7 @@ struct Settings {
     show_agents: Option<bool>,
     copy_on_select: Option<bool>,
     show_system_load: Option<bool>,
+    agent_checkpoints: Option<bool>,
     show_listening_ports: Option<bool>,
     contrast: Contrast,
     usage: crate::usage::UsageConfig,
@@ -623,6 +628,7 @@ impl Config {
         config.show_agents = settings.show_agents.unwrap_or(true);
         config.copy_on_select = settings.copy_on_select.unwrap_or(true);
         config.show_system_load = settings.show_system_load.unwrap_or(true);
+        config.agent_checkpoints = settings.agent_checkpoints.unwrap_or(true);
         config.show_listening_ports = settings.show_listening_ports.unwrap_or(true);
         config.contrast = settings.contrast;
         config.usage = settings.usage;
