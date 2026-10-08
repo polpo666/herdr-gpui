@@ -34,7 +34,6 @@ pub(super) fn check_status_bar(
             assert!(button.top() >= status.top());
             assert!(button.bottom() <= status.bottom());
         }
-
     }
     Ok(())
 }

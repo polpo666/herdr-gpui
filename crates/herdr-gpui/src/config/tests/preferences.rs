@@ -48,7 +48,6 @@ fn show_agents_saves_in_place_and_keeps_other_settings() -> anyhow::Result<()> {
     );
     let config = Config::parse(&saved)?;
     assert!(!config.show_agents);
-    assert!(!config.copy_on_select);
     assert!(!config.usage.show);
     Config::save_show_agents_path(true, &path)?;
     assert_eq!(fs::read_to_string(&path)?, original);
@@ -80,10 +79,12 @@ fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
         assert!(config.show_agents);
         assert!(config.copy_on_select);
     }
-    let config = Config::parse("confirm_close_tab = false\nshow_agents = false\ncopy_on_select = false")?;
+    let config =
+        Config::parse("confirm_close_tab = false\nshow_agents = false\ncopy_on_select = false")?;
     assert!(!config.confirm_close_tab);
     assert!(config.confirm_close_pane);
     assert!(!config.show_agents);
+    assert!(!config.copy_on_select);
     let config = Config::parse("confirm_close_pane = false")?;
     assert!(config.confirm_close_tab);
     assert!(!config.confirm_close_pane);

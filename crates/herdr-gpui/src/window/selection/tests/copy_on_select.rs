@@ -49,7 +49,6 @@ fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAp
     });
 }
 
-
 /// A drag across the painted cells copies what it covered when the button
 /// comes up, keeps it highlighted, and says so; a press alone leaves the
 /// clipboard alone and clears the highlight.
