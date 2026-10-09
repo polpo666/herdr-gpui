@@ -47,7 +47,7 @@ fn status_bar_controls_save_typed_edits(cx: &mut TestAppContext) {
         ),
         (
             "settings-status-report-issue",
-            Edit::ReportIssue(Button::Hidden),
+            Edit::ReportIssue(Button::Label),
         ),
     ] {
         assert_eq!(

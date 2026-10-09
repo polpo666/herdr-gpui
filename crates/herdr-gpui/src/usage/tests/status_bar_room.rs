@@ -60,6 +60,8 @@ fn compact_usage_and_icon_buttons_give_the_bar_back(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
         view.config.usage.show = true;
+        // Compare each button's label with its icon, regardless of fork defaults.
+        view.config.status_bar.report_issue = Button::Label;
         view.usage.host = Some(super::super::Host::Local);
         view.usage.entries.insert(
             super::super::Host::Local,
