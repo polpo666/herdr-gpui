@@ -12,6 +12,7 @@ fn status_bar_items_preserve_fork_defaults() -> anyhow::Result<()> {
         Config::parse(DEFAULT_CONFIG)?,
     ] {
         assert_eq!(config.status_bar, StatusBar::default());
+        assert!(config.status_bar.show);
         assert_eq!(config.status_bar.usage, Detail::Detailed);
         assert!(config.status_bar.keep_awake);
         assert_eq!(config.status_bar.theme, Button::Label);
@@ -28,6 +29,7 @@ fn status_bar_items_parse_and_report_unknown_keys() -> anyhow::Result<()> {
     assert_eq!(
         config.status_bar,
         StatusBar {
+            show: true,
             usage: Detail::Compact,
             system_load: Detail::Compact,
             keep_awake: false,
@@ -75,6 +77,7 @@ fn status_bar_edits_round_trip_through_the_overrides_file() -> anyhow::Result<()
     assert_eq!(
         config.status_bar,
         StatusBar {
+            show: true,
             usage: Detail::Compact,
             system_load: Detail::Compact,
             keep_awake: false,
@@ -94,5 +97,30 @@ fn status_bar_edits_round_trip_through_the_overrides_file() -> anyhow::Result<()
     assert_eq!(config.status_bar.usage, Detail::Detailed);
     assert_eq!(config.status_bar.theme, Button::Label);
     assert!(config.status_bar.keep_awake);
+    Ok(())
+}
+
+/// `show = false` starts windows without the bar; `toggle_status_bar` still
+/// brings it back. It lives in the table, so a top-level key is an error.
+#[test]
+fn status_bar_show_can_be_turned_off() -> anyhow::Result<()> {
+    let off = Config::parse("[status_bar]\nshow = false\n")?;
+    assert!(!off.status_bar.show);
+    assert_eq!(
+        off.status_bar,
+        StatusBar {
+            show: false,
+            ..StatusBar::default()
+        }
+    );
+    assert!(off.unknown_keys.is_empty());
+    assert!(
+        Config::parse("[status_bar]\nshow = true\n")?
+            .status_bar
+            .show
+    );
+    for invalid in ["[status_bar]\nshow = 'no'\n", "status_bar = false\n"] {
+        assert!(Config::parse(invalid).is_err(), "{invalid}");
+    }
     Ok(())
 }
