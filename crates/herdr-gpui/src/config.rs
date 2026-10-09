@@ -94,6 +94,10 @@ pub struct Config {
     pub usage: crate::usage::UsageConfig,
     pub option_as_alt: OptionAsAlt,
     pub open_links_in: LinkTarget,
+    /// Where a link-modifier click on a printed file path opens it.
+    pub open_files_in: FileTarget,
+    /// How the editor starts; the pane's `$VISUAL` or `$EDITOR` when unset.
+    pub(crate) editor_command: Option<crate::editor::EditorCommand>,
     /// Whether a terminal selection stays highlighted, and readable by
     /// selection tools, after it is copied.
     pub keep_selection_after_copy: bool,
@@ -173,6 +177,19 @@ pub enum LinkTarget {
     System,
     /// A browser tab in the workspace, where the build can show pages.
     BrowserTab,
+}
+
+/// Where a clicked file path opens. Alt-click (Option on macOS) opens it in
+/// the other one.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileTarget {
+    /// The terminal editor, in a pane beside the one that printed the path.
+    /// Folders, images, and PDFs still open in the system's application.
+    #[default]
+    Editor,
+    /// The system's default application.
+    System,
 }
 
 /// Whether macOS Option sends Alt shortcuts to a pane or types the character
@@ -354,6 +371,8 @@ impl Default for Config {
             usage: crate::usage::UsageConfig::default(),
             option_as_alt: OptionAsAlt::default(),
             open_links_in: LinkTarget::default(),
+            open_files_in: FileTarget::default(),
+            editor_command: None,
             keep_selection_after_copy: true,
             features: Features::default(),
             notifications: NotificationConfig::default(),
@@ -395,6 +414,8 @@ struct Settings {
     usage: crate::usage::UsageConfig,
     option_as_alt: OptionAsAlt,
     open_links_in: LinkTarget,
+    open_files_in: FileTarget,
+    editor_command: Option<crate::editor::EditorCommand>,
     keep_selection_after_copy: Option<bool>,
     sidebar: sidebar_style::SidebarSettings,
     tabs: FontSettings,
@@ -730,6 +751,8 @@ impl Config {
         config.usage = settings.usage;
         config.option_as_alt = settings.option_as_alt;
         config.open_links_in = settings.open_links_in;
+        config.open_files_in = settings.open_files_in;
+        config.editor_command = settings.editor_command;
         config.keep_selection_after_copy = settings.keep_selection_after_copy.unwrap_or(true);
         for (name, font, settings) in [
             ("sidebar", &mut config.sidebar, settings.sidebar.font),
