@@ -39,7 +39,7 @@ mod unix {
             fd::OwnedFd,
             unix::{ffi::OsStringExt, net::UnixStream, process::CommandExt},
         },
-        process::{Command, Stdio},
+        process::{Child, Command, Stdio},
         sync::{
             OnceLock,
             atomic::{AtomicU64, Ordering},
@@ -110,6 +110,24 @@ mod unix {
             .stdout(Stdio::from(OwnedFd::from(writer)))
             .process_group(0)
             .spawn()?;
+        capture_started(
+            &mut reader,
+            &mut child,
+            timeout,
+            limit,
+            start.as_bytes(),
+            end.as_bytes(),
+        )
+    }
+
+    fn capture_started(
+        reader: &mut UnixStream,
+        child: &mut Child,
+        timeout: Duration,
+        limit: usize,
+        start: &[u8],
+        end: &[u8],
+    ) -> Result<Environment, ProbeError> {
         let deadline = Instant::now() + timeout;
         let result = (|| {
             let mut output = Vec::new();
@@ -154,8 +172,7 @@ mod unix {
                             return Err(ProbeError::Timeout);
                         }
                     }
-                    return parse(&output, start.as_bytes(), end.as_bytes())
-                        .ok_or(ProbeError::Output);
+                    return parse(&output, start, end).ok_or(ProbeError::Output);
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -331,30 +348,6 @@ mod unix {
             assert!(!dir.path().join("shell.ran").exists());
         }
 
-        #[test]
-        fn timeout_kills_shell_and_descendant_group() {
-            let (dir, path) =
-                shell("/bin/sleep 60 &\nprintf '%s %s' \"$$\" \"$!\" > \"$0.pids\"\nwait");
-            let start = Instant::now();
-            assert!(probe(path.as_os_str(), false, false, Duration::from_secs(1)).is_none());
-            assert!(start.elapsed() < Duration::from_secs(5));
-            let pids = std::fs::read_to_string(dir.path().join("shell.pids")).unwrap();
-            for pid in pids.split_whitespace() {
-                let deadline = Instant::now() + Duration::from_secs(2);
-                loop {
-                    let output = Command::new("/bin/ps")
-                        .args(["-o", "stat=", "-p", pid])
-                        .output()
-                        .unwrap();
-                    let state = String::from_utf8(output.stdout).unwrap();
-                    // Orphaned children may remain zombies until the system reaps them.
-                    if state.trim().is_empty() || state.trim().starts_with('Z') {
-                        break;
-                    }
-                    assert!(Instant::now() < deadline, "process {pid} survived: {state}");
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-            }
-        }
+        mod timeout;
     }
 }
