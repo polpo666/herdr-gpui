@@ -38,9 +38,15 @@ confirm_close_tab = true
 confirm_close_pane = true
 # Show the Agents section below Spaces in the sidebar.
 show_agents = true
+<<<<<<< HEAD
 # Copy a terminal selection immediately when the pointer button is released.
 # Set false to keep the highlight and copy only with Cmd-C or Edit > Copy.
 copy_on_select = true
+=======
+# Show the search field at the top of the sidebar, which finds devices,
+# worktrees, and branches. Also under Settings > Appearance > Sidebar layout.
+show_sidebar_search = true
+>>>>>>> bc1528e9 (Merge pull request #402 from penso/feat/sidebar-search)
 # Show CPU and memory: the selected host's in the status bar, and each host's
 # on its sidebar row. Connected remote hosts are read over SSH every couple of
 # seconds; false stops all sampling. Also under Settings > Status bar.
