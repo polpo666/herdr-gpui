@@ -85,6 +85,9 @@ pub struct Config {
     pub theme: String,
     pub confirm_close_tab: bool,
     pub confirm_close_pane: bool,
+    /// Whether a workspace close shows its dialog when the check finds no
+    /// unpublished work. Uncommitted or unpushed work always asks.
+    pub confirm_close_workspace: bool,
     pub show_agents: bool,
     /// Copy a terminal selection as soon as its pointer drag is released.
     pub copy_on_select: bool,
@@ -427,6 +430,7 @@ impl Default for Config {
             daytona: DaytonaConfig::default(),
             confirm_close_tab: true,
             confirm_close_pane: true,
+            confirm_close_workspace: true,
             show_agents: true,
             copy_on_select: false,
             show_sidebar_search: true,
@@ -477,6 +481,7 @@ struct Settings {
     theme: Option<String>,
     confirm_close_tab: Option<bool>,
     confirm_close_pane: Option<bool>,
+    confirm_close_workspace: Option<bool>,
     show_agents: Option<bool>,
     copy_on_select: Option<bool>,
     show_sidebar_search: Option<bool>,
@@ -840,6 +845,7 @@ impl Config {
         }
         config.confirm_close_tab = settings.confirm_close_tab.unwrap_or(true);
         config.confirm_close_pane = settings.confirm_close_pane.unwrap_or(true);
+        config.confirm_close_workspace = settings.confirm_close_workspace.unwrap_or(true);
         config.show_agents = settings.show_agents.unwrap_or(true);
         config.copy_on_select = settings.copy_on_select.unwrap_or(false);
         config.show_sidebar_search = settings.show_sidebar_search.unwrap_or(true);
