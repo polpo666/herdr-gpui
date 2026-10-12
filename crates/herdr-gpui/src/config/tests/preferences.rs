@@ -79,6 +79,7 @@ fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
         assert!(config.confirm_close_workspace);
         assert!(config.show_agents);
         assert!(!config.copy_on_select);
+        assert!(config.smooth_scroll);
     }
     let config =
         Config::parse("confirm_close_tab = false\nshow_agents = false\ncopy_on_select = false")?;
@@ -97,6 +98,8 @@ fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
     assert!(Config::parse("confirm_close_pane = 0").is_err());
     assert!(Config::parse("show_agents = 0").is_err());
     assert!(Config::parse("copy_on_select = 'false'").is_err());
+    assert!(!Config::parse("smooth_scroll = false")?.smooth_scroll);
+    assert!(Config::parse("smooth_scroll = 0").is_err());
     Ok(())
 }
 
