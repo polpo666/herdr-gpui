@@ -30,6 +30,7 @@ fn shift_selection_offers_annotation_without_taking_focus_or_interrupting_copy(
     cx: &mut TestAppContext,
 ) {
     let (view, cx) = window(cx, shown(None, false));
+    view.update(cx, |view, _| view.config.copy_on_select = true);
     let start = at(&view, cx, 0.);
     let end = at(&view, cx, 6.);
     cx.simulate_mouse_down(start, MouseButton::Left, shift());
@@ -73,15 +74,19 @@ fn shift_selection_offers_annotation_without_taking_focus_or_interrupting_copy(
 fn the_pill_works_with_mouse_reporting_and_each_copy_setting(cx: &mut TestAppContext) {
     let (view, cx) = window(cx, shown(None, false));
     for mouse_reporting in [false, true] {
-        for copy_on_select in [false, true] {
+        for (copy_on_select, shared_copy_on_select) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let should_copy = copy_on_select && shared_copy_on_select;
             for keep in [false, true] {
                 view.update(cx, |view, _| {
                     Arc::make_mut(view.live.surface.as_mut().unwrap()).panes[0].mouse_reporting =
                         mouse_reporting;
+                    view.config.copy_on_select = copy_on_select;
                     view.config.keep_selection_after_copy = keep;
                     view.settings.shared = Some(
                         crate::herdr_settings::Settings::parse_text(&format!(
-                            "[ui]\ncopy_on_select = {copy_on_select}"
+                            "[ui]\ncopy_on_select = {shared_copy_on_select}"
                         ))
                         .unwrap(),
                     );
@@ -97,13 +102,13 @@ fn the_pill_works_with_mouse_reporting_and_each_copy_setting(cx: &mut TestAppCon
                         assert!(view.focus.is_focused(window));
                         assert!(view.terminal_notes.offer.is_some());
                         assert!(!view.terminal_notes.composing());
-                        assert_eq!(view.selection_retained(), !copy_on_select || keep);
+                        assert_eq!(view.selection_retained(), !should_copy || keep);
                     })
                 });
                 assert_eq!(
                     cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()))
                         .as_deref(),
-                    Some(if copy_on_select { "failed" } else { "before" })
+                    Some(if should_copy { "failed" } else { "before" })
                 );
                 let pill = cx.debug_bounds("terminal-annotate").unwrap();
                 cx.simulate_click(pill.center(), Modifiers::default());

@@ -39,8 +39,8 @@ confirm_close_pane = true
 # Show the Agents section below Spaces in the sidebar.
 show_agents = true
 # Copy a terminal selection immediately when the pointer button is released.
-# Set false to keep the highlight and copy only with Cmd-C or Edit > Copy.
-copy_on_select = true
+# By default, keep the highlight and copy only with Cmd-C or Edit > Copy.
+copy_on_select = false
 # Show the search field at the top of the sidebar, which finds devices,
 # worktrees, and branches. Also under Settings > Appearance > Sidebar layout.
 show_sidebar_search = true

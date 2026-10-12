@@ -423,7 +423,7 @@ impl Default for Config {
             confirm_close_tab: true,
             confirm_close_pane: true,
             show_agents: true,
-            copy_on_select: true,
+            copy_on_select: false,
             show_sidebar_search: true,
             show_system_load: true,
             agent_checkpoints: true,
@@ -827,7 +827,7 @@ impl Config {
         config.confirm_close_tab = settings.confirm_close_tab.unwrap_or(true);
         config.confirm_close_pane = settings.confirm_close_pane.unwrap_or(true);
         config.show_agents = settings.show_agents.unwrap_or(true);
-        config.copy_on_select = settings.copy_on_select.unwrap_or(true);
+        config.copy_on_select = settings.copy_on_select.unwrap_or(false);
         config.show_sidebar_search = settings.show_sidebar_search.unwrap_or(true);
         config.show_system_load = settings.show_system_load.unwrap_or(true);
         config.agent_checkpoints = settings.agent_checkpoints.unwrap_or(true);

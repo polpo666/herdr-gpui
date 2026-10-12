@@ -6,6 +6,7 @@ use super::*;
 fn double_and_triple_clicks_copy_the_word_and_the_row(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["cat src/lib.rs now", "next"], 20);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -51,6 +52,7 @@ fn a_drag_past_the_pane_scrolls_and_copies_through_the_daemon(cx: &mut TestAppCo
     let mut peer = MockPeer::advertising(&["pane.scroll", "pane.selection.read"]);
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         peer.prepare(&mut view, cx);
         view.live.supports_selection_read = true;
         let frame = surface(&["x"; 24], 80);

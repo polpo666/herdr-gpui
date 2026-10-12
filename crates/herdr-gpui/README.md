@@ -893,10 +893,10 @@ following the daemon config. Only these two keys are read from that table. The
 file is never written, and an unreadable, oversized, malformed, or unrecognized
 value leaves these defaults standing.
 
-Set `copy_on_select = false` at the top level to retain a terminal selection
-after the pointer button is released. The clipboard is then changed only by
-Cmd-C or **Edit > Copy**. It defaults to `true` for the original release-to-copy
-behavior.
+The top-level `copy_on_select` defaults to `false`: a terminal selection stays
+highlighted after the pointer button is released without changing the clipboard.
+Use Cmd-C or **Edit > Copy** to copy it. Set `copy_on_select = true` to enable
+release-to-copy when Herdr's shared setting is also enabled.
 
 The `[bell]` table decides what a pane's terminal bell (BEL) does. Herdr has no
 bell setting: it forwards each bell to its foreground client and leaves the

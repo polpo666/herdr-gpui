@@ -77,7 +77,7 @@ fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
         assert!(config.confirm_close_tab);
         assert!(config.confirm_close_pane);
         assert!(config.show_agents);
-        assert!(config.copy_on_select);
+        assert!(!config.copy_on_select);
     }
     let config =
         Config::parse("confirm_close_tab = false\nshow_agents = false\ncopy_on_select = false")?;
@@ -85,6 +85,7 @@ fn appearance_close_and_copy_options_preserve_defaults() -> anyhow::Result<()> {
     assert!(config.confirm_close_pane);
     assert!(!config.show_agents);
     assert!(!config.copy_on_select);
+    assert!(Config::parse("copy_on_select = true")?.copy_on_select);
     let config = Config::parse("confirm_close_pane = false")?;
     assert!(config.confirm_close_tab);
     assert!(!config.confirm_close_pane);

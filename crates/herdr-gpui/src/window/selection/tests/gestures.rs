@@ -7,6 +7,7 @@ fn dragging_across_a_link_copies_it_instead_of_opening_it(cx: &mut TestAppContex
     let url = "https://example.com/x";
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&[url], 24);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -46,6 +47,7 @@ fn application_mouse_takes_precedence_and_shift_keeps_copy_and_links(cx: &mut Te
     let url = "https://example.com/x";
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&[url], 24);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -135,6 +137,7 @@ fn external_file_drag_cancels_local_selection_without_copying(cx: &mut TestAppCo
 fn a_menu_page_holds_the_gesture(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["copied text"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();

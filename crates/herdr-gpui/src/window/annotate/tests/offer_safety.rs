@@ -83,7 +83,10 @@ fn selecting_again_does_not_replace_a_message_being_written(cx: &mut TestAppCont
 #[gpui::test]
 fn the_command_can_open_the_offer_after_copy_cleared_the_highlight(cx: &mut TestAppContext) {
     let (view, cx) = window(cx, shown(None, false));
-    view.update(cx, |view, _| view.config.keep_selection_after_copy = false);
+    view.update(cx, |view, _| {
+        view.config.copy_on_select = true;
+        view.config.keep_selection_after_copy = false;
+    });
     offer(&view, cx);
     assert!(view.read_with(cx, |view, _| view.selection.is_none()));
     cx.update(|window, cx| {

@@ -1,11 +1,13 @@
 use super::*;
 
-/// The fork's GUI override retains the highlight even after explicit copy.
+/// The fork defaults to explicit copy even when Herdr enables auto-copy.
 #[gpui::test]
-fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAppContext) {
+fn default_selection_retains_clipboard_until_explicit_copy(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
-        view.config.copy_on_select = false;
+        view.settings.shared = Some(
+            crate::herdr_settings::Settings::parse_text("[ui]\ncopy_on_select = true").unwrap(),
+        );
         let mut frame = surface(&["hello there"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -47,6 +49,29 @@ fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAp
         assert!(view.selection.is_some());
         assert!(view.flash.is_some());
     });
+
+    // Word and row selections also wait for explicit copy.
+    for (click_count, expected) in [(2, "hello"), (3, "hello there")] {
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        cx.simulate_event(gpui::MouseDownEvent {
+            button: MouseButton::Left,
+            position: at(1.),
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        cx.simulate_mouse_up(at(1.), MouseButton::Left, Modifiers::default());
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("before".into())
+        );
+        assert!(view.read_with(cx, |view, _| view.selection_retained()));
+        cx.simulate_keystrokes("cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some(expected.into())
+        );
+    }
 }
 
 /// A drag across the painted cells copies what it covered when the button
@@ -56,6 +81,7 @@ fn disabled_copy_on_select_retains_selection_until_explicit_copy(cx: &mut TestAp
 fn dragging_copies_on_release_keeps_the_highlight_and_reports(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["hello there", "second row"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -140,6 +166,7 @@ fn without_copy_on_select_a_release_keeps_the_selection_for_an_explicit_copy(
 ) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["hello there", "second row"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -224,6 +251,7 @@ fn without_copy_on_select_a_release_keeps_the_selection_for_an_explicit_copy(
 fn a_copied_selection_stays_until_the_next_key_or_click(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["hello there", "second row"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
@@ -294,6 +322,7 @@ fn a_copied_selection_stays_until_the_next_key_or_click(cx: &mut TestAppContext)
 fn chinese_mouse_selection_copies_exact_text_only_on_release(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         // Daemon-style wide cells: ordinary blank continuations, skip=false.
         let mut frame = surface(&["你 好 世 界 ", "A你  B"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
@@ -343,6 +372,7 @@ fn the_flash_follows_the_clipboard_toast_configuration(cx: &mut TestAppContext) 
     use crate::config::ClipboardToastPosition::*;
     let (view, cx) = cx.add_window_view(|window, cx| {
         let mut view = fixture_window(window, cx);
+        view.config.copy_on_select = true;
         let mut frame = surface(&["configured"], 12);
         let snapshot = view.live.snapshot.as_ref().unwrap();
         frame.boot_id = snapshot.boot_id.clone();
